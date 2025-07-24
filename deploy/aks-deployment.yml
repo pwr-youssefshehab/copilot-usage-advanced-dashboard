@@ -7,7 +7,7 @@ metadata:
 spec:
   accessModes:
     - ReadWriteMany
-  storageClassName: azurefile-csi-nfs
+  storageClassName: azurefile-csi
   resources:
     requests:
       storage: 5Gi
@@ -115,7 +115,7 @@ spec:
         - name: grafana
           image: ghcr.io/satomic/copilot-usage-advanced-dashboard/grafana:main
           ports:
-            - containerPort: 80
+            - containerPort: 8080
           envFrom:
             - secretRef:
                 name: grafana-credentials
@@ -123,7 +123,7 @@ spec:
             - name: GF_LOG_LEVEL
               value: debug
             - name: GF_SERVER_HTTP_PORT
-              value: "80"
+              value: "8080"
             - name: GF_SECURITY_ADMIN_USER
               valueFrom:
                 secretKeyRef:
@@ -135,9 +135,11 @@ spec:
                   name: grafana-credentials
                   key: GRAFANA_PASSWORD
           volumeMounts:
-            - name: grafana-data
+            - name: grafana-storage
               mountPath: /var/lib/grafana
-              subPath: grafana
+            - name: grafana-data
+              mountPath: /var/lib/grafana/logs
+              subPath: grafana-logs
           resources:
             requests:
               cpu: "0.5"
@@ -162,6 +164,8 @@ spec:
             runAsUser: 472
             runAsGroup: 472
       volumes:
+        - name: grafana-storage
+          emptyDir: {}
         - name: grafana-data
           persistentVolumeClaim:
             claimName: shared-pvc
@@ -183,17 +187,22 @@ kind: Ingress
 metadata:
   name: grafana-ingress
 spec:
-  ingressClassName: webapprouting.kubernetes.azure.com
+  ingressClassName: nginx
   rules:
-  - http:
-      paths:
-      - backend:
-          service:
-            name: grafana
-            port:
-              number: 80
-        path: /
-        pathType: Prefix
+    - host: copilot-metrics.devops.powwr.us.internal
+      http:
+        paths:
+          - backend:
+              service:
+                name: grafana
+                port:
+                  number: 80
+            path: /
+            pathType: Prefix
+  tls:
+    - hosts:
+        - copilot-metrics.devops.powwr.us.internal
+      secretName: wildcard-devops-power-us-internal-tls
 
 # --- cpuad-updater CronJob ---
 ---
@@ -215,7 +224,7 @@ spec:
                     name: github-pat
               env:
                 - name: ORGANIZATION_SLUGS
-                  value: "__ORGANIZATION_SLUGS__"
+                  value: "powwr"
                 - name: ELASTICSEARCH_URL
                   value: "http://elasticsearch:9200"
                 - name: LOG_PATH
